@@ -3,21 +3,7 @@
     <h1 class="text-4xl">Event Booking App</h1>
 
     <h2 class="text-2xl font-medium">All Events</h2>
-    <section class="grid grid-cols-2 gap-8">
-      <template v-if="!eventsLoading">
-        <EventCard
-          v-for="event in events"
-          :key="event.id"
-          :title="event.title"
-          :when="event.date"
-          :description="event.description"
-          @register="handelRegistration(event)"
-        />
-      </template>
-      <template v-else>
-        <LoadingEventCard v-for="i in 4" :key="i" />
-      </template>
-    </section>
+    <EventList @register="handelRegistration($event)" />
     <h2 class="text-2xl font-medium">Your Bookings</h2>
     <section class="grid grid-cols-1 gap-4">
       <template v-if="!bookingsLoading">
@@ -25,7 +11,8 @@
           v-for="booking in bookings"
           :key="booking.id"
           :title="booking.eventTitle"
-          @cancel="console.log('Booking Cancel')"
+          :status="booking.status"
+          @cancelled="cancelBooking(booking.id)"
         />
       </template>
       <template v-else>
@@ -36,27 +23,12 @@
 </template>
 <script setup>
 import { ref, onMounted } from 'vue'
-import EventCard from '@/components/EventCard.vue'
-import LoadingEventCard from '@/components/LoadingEventCard.vue'
 import LoadingBookingItem from '@/components/LoadingBookingItem.vue'
 import BookingItem from '@/components/BookingItem.vue'
+import EventList from '@/components/EventList.vue'
 
-const events = ref([])
-const eventsLoading = ref(false)
 const bookings = ref([])
 const bookingsLoading = ref(false)
-
-const fetchEvents = async () => {
-  eventsLoading.value = true
-  try {
-    const response = await fetch('http://localhost:3001/events')
-    events.value = await response.json()
-  } catch (error) {
-    console.error('Error fetching events:', error)
-  } finally {
-    eventsLoading.value = false
-  }
-}
 
 const fetchBookings = async () => {
   bookingsLoading.value = true
@@ -71,30 +43,67 @@ const fetchBookings = async () => {
 }
 
 onMounted(() => {
-  fetchEvents()
   fetchBookings()
 })
 
-const handelRegistration = async (event) => {
-  try {
-    const newBooking = {
-      id: Date.now().toString(),
-      userId: 1,
-      eventId: event.id,
-      eventTitle: event.title,
-    }
+const findBookingById = (id) => {
+  return bookings.value.findIndex((booking) => booking.id === id)
+}
 
-    await fetch('http://localhost:3001/bookings', {
+const handelRegistration = async (event) => {
+  if (bookings.value.some((booking) => booking.eventId === event.id)) {
+    alert('You are already registered for this event')
+    return
+  }
+
+  const newBooking = {
+    id: Date.now().toString(),
+    userId: 1,
+    eventId: event.id,
+    eventTitle: event.title,
+    status: 'pending',
+  }
+  try {
+    bookings.value.push(newBooking)
+    const response = await fetch('http://localhost:3001/bookings', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ ...newBooking, status: 'confrimed' }),
     })
+
+    if (response.ok) {
+      const updatedBookings = await response.json()
+
+      const index = findBookingById(newBooking.id)
+      bookings.value[index] = updatedBookings
+    } else {
+      throw new Error('Failed to confirm booking')
+    }
   } catch (error) {
     console.log('🚀 ~ handelRegistration ~ error:', error)
+    bookings.value = bookings.value.filter((booking) => booking.id !== newBooking.id)
   } finally {
-    fetchBookings()
+    // fetchBookings()
+  }
+}
+
+const cancelBooking = async (bookingId) => {
+  const index = findBookingById(bookingId)
+  const originalBooking = bookings.value[index]
+  bookings.value.splice(index, 1)
+  try {
+    const response = await fetch(`http://localhost:3001/bookings/${bookingId}`, {
+      method: 'DELETE',
+    })
+
+    if (!response.ok) {
+      throw new Error('Failed to cancel booking')
+    }
+  } catch (e) {
+    console.error('Error cancelling booking:', e)
+    bookings.value.splice(index, 0, originalBooking)
   }
 }
 </script>
